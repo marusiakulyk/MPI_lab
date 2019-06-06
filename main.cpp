@@ -1,4 +1,3 @@
-Marusia Kulyk, [27.05.19 17:11]
 #include<stdio.h>
 #include<mpi.h>
 #include <functional>
@@ -59,13 +58,15 @@ std::map<std::string, T> read_config_from_file(const std::string& filename){
 
 
 const auto function = [](double x, double y){
-    double sum1 = 0;
-    double sum2 = 0;
-    for (int i = 1; i <= 5; ++i){
-        sum1 += i * cos((i + 1) * x + 1);
-        sum2 += i * cos((i + 1) * y + 1);
-    }
-    return - sum1 * sum2;
+    int a1[5] = {1, 2, 1, 1, 5};
+    int a2[5] = {4, 5, 1, 2, 4};
+    int c[5] = {2, 1, 4, 7, 2};
+    double f = 0;
+    for (int i = 0; i < 5; i++) {
+        double num = pow((x - a1[i]), 2) + pow((y - a2[i]), 2);
+        f -= c[i] * exp(-M_1_PI * num) * cos(M_PI * num);
+}
+return f;
 };
 
 void integral(double start_x, double finish_x, double start_y, double finish_y,
@@ -106,18 +107,16 @@ double integral_threads(double start_x, double finish_x, double start_y, double 
 }
 
 double one_process(double abs, double rel, int num_threads, double start_x, double finish_x, double start_y, double finish_y ){
-    int max_iterations = 5;
+
     double  previous_res = 0,
             current_res = 0;
     int num_steps = 200;
+	
+    while(true){
 
-
-    while(max_iterations){
-        std::cout << "curr_iter: " << max_iterations << '\n';
         previous_res = current_res;
         current_res = integral_threads(start_x, finish_x,start_y,
                                        finish_y, num_steps, num_threads);
-
         if (previous_res != 0) {
             if (fabs(current_res - previous_res) <= abs &&
                 fabs((current_res - previous_res) / previous_res) <= rel) {
@@ -126,23 +125,23 @@ double one_process(double abs, double rel, int num_threads, double start_x, doub
         }
 
         num_steps *= 2;
-        max_iterations --;
+
     }
     return current_res;
 }
+
 int main(int argc, char *argv []){
-    int commsize, rank, len ;
-    char procname[MPI_MAX_PROCESSOR_NAME];
+    int commsize, rank;
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &commsize);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Get_processor_name(procname, &len);
+
     if(rank==0) {
         std::string config_file;
-
         if (argc < 2) {
-            std::cerr << "No config!\n";
+            std::cerr << "No config!\nUsage: <program_name> <config_file>\n";
             MPI_Finalize();
+            return -1;
         } else {
             config_file = argv[1];
         }
@@ -157,39 +156,46 @@ int main(int argc, char *argv []){
                                                "finish_y"};
 
         std::map<std::string, double> config{read_config_from_file<double>(config_file)};
-
+   
         int index = check_parameters(config, &required_args);
         if (index != -1) {
             std::cerr << "You did not specify " << required_args[index];
             MPI_Finalize();
+            return -1;
         }
-        long long steps = 200;
-        double stepx = (config["finish_x"] - config["start_x"]) / steps;
+        double start = MPI_Wtime();
+
+        double stepx = (config["finish_x"] - config["start_x"]) / (commsize);
         double sbuff[] = {config["absolute_error"], config["relative_error"],
-                          config["num_of_threads"], config["start_x"],
+                          config["num_of_threads"],  config["start_x"],
                           config["start_x"] + stepx, config["start_y"], config["finish_y"]};
         for (int i = 1; i < commsize; i++) {
             MPI_Send(sbuff, 7, MPI_DOUBLE, i, 0, MPI_COMM_WORLD);
             sbuff[3] = sbuff[4];
             sbuff[4] += stepx;
+
         }
 
-        double res = one_process(sbuff[0], sbuff[1], sbuff[2], sbuff[4], sbuff[4] + stepx, sbuff[5], sbuff[6]);
+
+        double res = one_process(sbuff[0], sbuff[1], sbuff[2], sbuff[3], config["finish_x"], sbuff[5], sbuff[6]);
         double send_buf[] = {res};
         double *rbuff = (double *) malloc(sizeof(double));
 
         MPI_Reduce((const void *) send_buf, (void *) rbuff, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-        std::cout<<"result: " << rbuff[0];
+        double finish = MPI_Wtime();
+        std::cout<<"Result: "<< rbuff[0] << std::endl;
+        std::cout << "Time: " << finish - start  << std::endl;
     }
         else{
-            double *rbuf;
+        double *rbuf = (double *) malloc(7 *sizeof(double));
             MPI_Recv(rbuf, 7, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             double result = one_process(rbuf[0], rbuf[1], rbuf[2], rbuf[3], rbuf[4], rbuf[5], rbuf[6]);
         double *rbuff = (double *) malloc(sizeof(double));
         double send_buf[] = {result};
         MPI_Reduce((const void *) send_buf, (void *) rbuff, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-        
-    }
 
+    }
         MPI_Finalize();
-        return 0;}
+        return 0;
+}
+
