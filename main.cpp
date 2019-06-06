@@ -74,29 +74,30 @@ void integral(double start_x, double finish_x, double start_y, double finish_y,
               std::promise<double> && promise){
 
     double result = 0;
-    for(double x = start_x; x <= finish_x; x += step){
-        for(double y = start_y; y < finish_y; y += step){
-            result += function(x - step/2, y - step/2) * step * step;
+    for(double y = start_y; y < finish_y; y += step){
+        for(double x = start_x; x <= finish_x; x += step){
+            result += function(x + step/2, y + step/2);
         }
+
     }
-    promise.set_value(result);
+    promise.set_value(result * step * step);
 }
 
 
 double integral_threads(double start_x, double finish_x, double start_y, double finish_y,
                                                 int num_steps, int num_threads){
     double result = 0;
-    double step_y = floor((finish_y - start_y)/num_threads);
-    double upper = finish_y + floor((finish_y - start_y)/num_steps);
+    double step_y = floor((finish_y - start_y)/num_threads); // TODO
+    double upper = finish_x + floor((finish_x - start_x)/num_steps);
     std::vector<std::thread> threads;
     std::vector<std::future<double>> f;
 
     for(int i = 0; i < num_threads; i++){
         std::promise<double> p;
         f.push_back(p.get_future());
-        threads.emplace_back(integral, start_x, finish_x, start_y + i * step_y,
-                             (i != num_threads - 1) ? start_y + (i + 1) * step_y : upper,
-                             function, (finish_x - start_x)/ ((double)num_steps), std::move(p));
+        threads.emplace_back(integral, start_x + i * step_x,
+                             (i != num_threads - 1) ? start_x + (i + 1) * step_x : upper,
+                             start_y, finish_y, function, (finish_x - start_x)/num_steps, std::move(p));
     }
 
     for (int i = 0; i < num_threads; i++){
@@ -111,9 +112,9 @@ double one_process(double abs, double rel, int num_threads, double start_x, doub
     double  previous_res = 0,
             current_res = 0;
     int num_steps = 200;
-	
-    while(true){
-
+	int m = 6;
+    while(m){
+	std::cout << m << '\n';
         previous_res = current_res;
         current_res = integral_threads(start_x, finish_x,start_y,
                                        finish_y, num_steps, num_threads);
@@ -123,10 +124,13 @@ double one_process(double abs, double rel, int num_threads, double start_x, doub
                 break;
             }
         }
-
+	m--;
         num_steps *= 2;
 
     }
+	std::cout << "abs: " << fabs(current_res - previous_res) << '\n';
+	std::cout << "rel: " << fabs((current_res - previous_res) / previous_res) << '\n';
+
     return current_res;
 }
 
